@@ -1,0 +1,547 @@
+---
+title: "Capstone Model"
+author: "Scott Silverstein"
+date: "2024-03-24"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+Library
+```{r}
+install.packages("cluster")
+install.packages("pROC")
+library(caret)
+library(tidyverse)
+library(rpart)
+library(ggplot2)
+library(skimr)
+library(mice)
+library(ROSE)
+library(rpart.plot)
+library(rminer)
+library(ModelMetrics)
+library(RWeka)
+library(pROC)
+library(cluster)
+```
+
+# Data Cleaning 
+
+## load data 
+```{r}
+application_train <- read.csv('application_train.csv')
+application_test <- read.csv('application_test.csv')
+```
+
+
+
+### Amount Required Credit Buereau with time distinction 
+```{r}
+# combining all columns then save to a data frame 
+amt_req <- application_train %>%
+  select(AMT_REQ_CREDIT_BUREAU_DAY, AMT_REQ_CREDIT_BUREAU_HOUR, AMT_REQ_CREDIT_BUREAU_MON, 
+         AMT_REQ_CREDIT_BUREAU_QRT, AMT_REQ_CREDIT_BUREAU_WEEK, AMT_REQ_CREDIT_BUREAU_YEAR) %>%
+  head(15)
+
+# list unique values
+list_unique_values <- list(
+  AMT_REQ_CREDIT_BUREAU_DAY = unique(application_train$AMT_REQ_CREDIT_BUREAU_DAY),
+  AMT_REQ_CREDIT_BUREAU_HOUR = unique(application_train$AMT_REQ_CREDIT_BUREAU_HOUR),
+  AMT_REQ_CREDIT_BUREAU_MON = unique(application_train$AMT_REQ_CREDIT_BUREAU_MON),
+  AMT_REQ_CREDIT_BUREAU_QRT = unique(application_train$AMT_REQ_CREDIT_BUREAU_QRT),
+  AMT_REQ_CREDIT_BUREAU_WEEK = unique(application_train$AMT_REQ_CREDIT_BUREAU_WEEK),
+  AMT_REQ_CREDIT_BUREAU_YEAR = unique(application_train$AMT_REQ_CREDIT_BUREAU_YEAR)
+)
+list_unique_values
+```
+
+Decided the na's are helful, so going to impute values using MICE. MICE (Multiple Imputation by Chained Equations). This method makes sense because the data seems to be missing due to lack of available information and not missing due to missing at random. What this does is filled with simple imputation methods such as mean, median, or mode, and then performs multiple imputations in a series of steps. For each variable a regression model is built, predicting the missing values based on other variables in the dataset. 
+
+
+Given the fact however, that the people who have NA's clearly have not had any inquires or else it would show up in the data. I think it is safe to replace them with 0's. Any other assumption would put into question the legitamacy of the dataset which would be hard to do without more concrete data. 
+
+```{r}
+application_train_clean <- application_train %>%
+  mutate(
+    AMT_REQ_CREDIT_BUREAU_DAY = ifelse(is.na(AMT_REQ_CREDIT_BUREAU_DAY), 0, AMT_REQ_CREDIT_BUREAU_DAY),
+    AMT_REQ_CREDIT_BUREAU_HOUR = ifelse(is.na(AMT_REQ_CREDIT_BUREAU_HOUR), 0, AMT_REQ_CREDIT_BUREAU_HOUR),
+    AMT_REQ_CREDIT_BUREAU_MON = ifelse(is.na(AMT_REQ_CREDIT_BUREAU_MON), 0, AMT_REQ_CREDIT_BUREAU_MON),
+    AMT_REQ_CREDIT_BUREAU_QRT = ifelse(is.na(AMT_REQ_CREDIT_BUREAU_QRT), 0, AMT_REQ_CREDIT_BUREAU_QRT),
+    AMT_REQ_CREDIT_BUREAU_WEEK = ifelse(is.na(AMT_REQ_CREDIT_BUREAU_WEEK), 0, AMT_REQ_CREDIT_BUREAU_WEEK),
+    AMT_REQ_CREDIT_BUREAU_YEAR = ifelse(is.na(AMT_REQ_CREDIT_BUREAU_YEAR), 0, AMT_REQ_CREDIT_BUREAU_YEAR)
+  )
+
+```
+
+```{r}
+na_counts <- application_train_clean %>%
+  summarise(
+    NAs_in_AMT_REQ_CREDIT_BUREAU_DAY = sum(is.na(AMT_REQ_CREDIT_BUREAU_DAY)),
+    NAs_in_AMT_REQ_CREDIT_BUREAU_HOUR = sum(is.na(AMT_REQ_CREDIT_BUREAU_HOUR)),
+    NAs_in_AMT_REQ_CREDIT_BUREAU_MON = sum(is.na(AMT_REQ_CREDIT_BUREAU_MON)),
+    NAs_in_AMT_REQ_CREDIT_BUREAU_QRT = sum(is.na(AMT_REQ_CREDIT_BUREAU_QRT)),
+    NAs_in_AMT_REQ_CREDIT_BUREAU_WEEK = sum(is.na(AMT_REQ_CREDIT_BUREAU_WEEK)),
+    NAs_in_AMT_REQ_CREDIT_BUREAU_YEAR = sum(is.na(AMT_REQ_CREDIT_BUREAU_YEAR))
+  )
+
+# Print the count of NAs in each column
+print(na_counts)
+```
+### avg's columns 
+
+```{r}
+impute_median <- function(data, columns) {
+  for (column in columns) {
+    data[[column]] <- ifelse(is.na(data[[column]]), median(data[[column]], na.rm = TRUE), data[[column]])
+  }
+  return(data)
+}
+```
+```{r}
+columns_to_impute <- c("APARTMENTS_AVG", "BASEMENTAREA_AVG", "YEARS_BEGINEXPLUATATION_AVG",
+                       "YEARS_BUILD_AVG", "COMMONAREA_AVG", "ELEVATORS_AVG", "ENTRANCES_AVG",
+                       "FLOORSMAX_AVG", "FLOORSMIN_AVG", "LANDAREA_AVG", "LIVINGAPARTMENTS_AVG",
+                       "LIVINGAREA_AVG", "NONLIVINGAPARTMENTS_AVG", "NONLIVINGAREA_AVG",
+                       "APARTMENTS_MEDI", "BASEMENTAREA_MEDI", "YEARS_BEGINEXPLUATATION_MEDI",
+                       "YEARS_BUILD_MEDI", "COMMONAREA_MEDI", "ELEVATORS_MEDI", "ENTRANCES_MEDI",
+                       "FLOORSMAX_MEDI", "FLOORSMIN_MEDI", "LANDAREA_MEDI", "LIVINGAPARTMENTS_MEDI",
+                       "LIVINGAREA_MEDI", "NONLIVINGAPARTMENTS_MEDI", "NONLIVINGAREA_MEDI",
+                       "APARTMENTS_MODE", "BASEMENTAREA_MODE", "YEARS_BEGINEXPLUATATION_MODE",
+                       "YEARS_BUILD_MODE", "COMMONAREA_MODE", "ELEVATORS_MODE", "ENTRANCES_MODE",
+                       "FLOORSMAX_MODE", "FLOORSMIN_MODE", "LANDAREA_MODE", "LIVINGAPARTMENTS_MODE",
+                       "LIVINGAREA_MODE", "NONLIVINGAPARTMENTS_MODE", "NONLIVINGAREA_MODE",
+                       "TOTALAREA_MODE")
+
+application_train_clean <- impute_median(application_train_clean, columns_to_impute)
+
+# Check the results
+summary(application_train_clean[columns_to_impute])
+```
+
+
+
+
+### Own car age 
+
+This is the majority of the dataset and is not random as far as we can tell. I will remove this column 
+
+```{r}
+# Remove the OWN_CAR_AGE column from the dataframe
+application_train_clean <- application_train_clean %>%
+  select(-OWN_CAR_AGE)
+
+# View the first few rows of the updated dataframe to confirm the column is removed
+head(application_train_clean)
+```
+### AMT_GOODS_PRICE 
+
+Again skewed to the right so need to impute with median. 
+
+```{r}
+#  median of the AMT_GOODS_PRICE 
+median_amt_goods_price <- median(application_train_clean$AMT_GOODS_PRICE, na.rm = TRUE)
+
+# Impute missing values in the AMT_GOODS_PRICE column with the median
+application_train_clean$AMT_GOODS_PRICE <- ifelse(is.na(application_train_clean$AMT_GOODS_PRICE), 
+                                                  median_amt_goods_price, 
+                                                  application_train_clean$AMT_GOODS_PRICE)
+
+# Check to ensure no more NAs in the AMT_GOODS_PRICE column
+sum(is.na(application_train_clean$AMT_GOODS_PRICE))
+```
+### Amount Annuity 
+
+
+```{r}
+#  median of the AMT_ ANNUITY 
+median_amt_annuity <- median(application_train_clean$AMT_ANNUITY, na.rm = TRUE)
+
+# Impute missing values 
+application_train_clean$AMT_ANNUITY <- ifelse(is.na(application_train_clean$AMT_ANNUITY), 
+                                                  median_amt_annuity, 
+                                                  application_train_clean$AMT_ANNUITY)
+
+# Check
+sum(is.na(application_train_clean$AMT_ANNUITY))
+```
+
+### cnt_fam_members 
+
+```{r}
+#  median of the CNT_FAM_MEMBERS 
+median_cnt_fam_members <- median(application_train_clean$CNT_FAM_MEMBERS, na.rm = TRUE)
+
+# Impute missing values
+application_train_clean$CNT_FAM_MEMBERS <- ifelse(is.na(application_train_clean$CNT_FAM), 
+                                                  median_cnt_fam_members, 
+                                                  application_train_clean$CNT_FAM_MEMBERS)
+
+# Check
+sum(is.na(application_train_clean$CNT_FAM_MEMBERS))
+```
+
+
+### EXT_SOURCES 
+
+In eda, took a look at these and it is clear that most of the data is missing with little explanation of what the data is in the summary file. I am just going to remove these columns. 
+
+```{r}
+application_train_clean <- application_train_clean %>%
+  select(-c(EXT_SOURCE_2, EXT_SOURCE_3, EXT_SOURCE_1))
+
+```
+
+### Social Circles 
+
+```{r}
+# # Impute NA values
+application_train_clean <- application_train_clean %>%
+  mutate(
+    DEF_30_CNT_SOCIAL_CIRCLE = replace(DEF_30_CNT_SOCIAL_CIRCLE, is.na(DEF_30_CNT_SOCIAL_CIRCLE), median(DEF_30_CNT_SOCIAL_CIRCLE, na.rm = TRUE)),
+    OBS_60_CNT_SOCIAL_CIRCLE = replace(OBS_60_CNT_SOCIAL_CIRCLE, is.na(OBS_60_CNT_SOCIAL_CIRCLE), median(OBS_60_CNT_SOCIAL_CIRCLE, na.rm = TRUE)),
+    DEF_60_CNT_SOCIAL_CIRCLE = replace(DEF_60_CNT_SOCIAL_CIRCLE, is.na(DEF_60_CNT_SOCIAL_CIRCLE), median(DEF_60_CNT_SOCIAL_CIRCLE, na.rm = TRUE)),
+    OBS_30_CNT_SOCIAL_CIRCLE = replace(OBS_30_CNT_SOCIAL_CIRCLE, is.na(OBS_30_CNT_SOCIAL_CIRCLE), median(OBS_30_CNT_SOCIAL_CIRCLE, na.rm = TRUE))
+  )
+
+# Check the results for the specific set of columns
+summary(application_train_clean[c("DEF_30_CNT_SOCIAL_CIRCLE", "OBS_60_CNT_SOCIAL_CIRCLE", "DEF_60_CNT_SOCIAL_CIRCLE", "OBS_30_CNT_SOCIAL_CIRCLE")])
+
+```
+
+## Factorize character variables
+
+```{r}
+# Convert all character columns to factors
+application_train_clean <- application_train_clean %>%
+  mutate(across(where(is.character), as.factor))
+
+# Check the structure to confirm the changes
+str(application_train_clean)
+```
+```{r}
+# Convert all character columns to factors
+application_test_clean <- application_test_clean %>%
+  mutate(across(where(is.character), as.factor))
+
+# confirm
+str(application_test_clean)
+```
+
+
+### All of the above for the test set 
+```{r}
+application_test_clean <- application_test %>%
+  mutate(
+    AMT_REQ_CREDIT_BUREAU_DAY = ifelse(is.na(AMT_REQ_CREDIT_BUREAU_DAY), 0, AMT_REQ_CREDIT_BUREAU_DAY),
+    AMT_REQ_CREDIT_BUREAU_HOUR = ifelse(is.na(AMT_REQ_CREDIT_BUREAU_HOUR), 0, AMT_REQ_CREDIT_BUREAU_HOUR),
+    AMT_REQ_CREDIT_BUREAU_MON = ifelse(is.na(AMT_REQ_CREDIT_BUREAU_MON), 0, AMT_REQ_CREDIT_BUREAU_MON),
+    AMT_REQ_CREDIT_BUREAU_QRT = ifelse(is.na(AMT_REQ_CREDIT_BUREAU_QRT), 0, AMT_REQ_CREDIT_BUREAU_QRT),
+    AMT_REQ_CREDIT_BUREAU_WEEK = ifelse(is.na(AMT_REQ_CREDIT_BUREAU_WEEK), 0, AMT_REQ_CREDIT_BUREAU_WEEK),
+    AMT_REQ_CREDIT_BUREAU_YEAR = ifelse(is.na(AMT_REQ_CREDIT_BUREAU_YEAR), 0, AMT_REQ_CREDIT_BUREAU_YEAR)
+  )
+### avgs 
+application_test_clean <- application_test_clean %>%
+  mutate(
+    APARTMENTS_AVG = replace(APARTMENTS_AVG, is.na(APARTMENTS_AVG), median(APARTMENTS_AVG, na.rm = TRUE)),
+    BASEMENTAREA_AVG = replace(BASEMENTAREA_AVG, is.na(BASEMENTAREA_AVG), median(BASEMENTAREA_AVG, na.rm = TRUE)),
+    YEARS_BEGINEXPLUATATION_AVG = replace(YEARS_BEGINEXPLUATATION_AVG, is.na(YEARS_BEGINEXPLUATATION_AVG), median(YEARS_BEGINEXPLUATATION_AVG, na.rm = TRUE)),
+    YEARS_BUILD_AVG = replace(YEARS_BUILD_AVG, is.na(YEARS_BUILD_AVG), median(YEARS_BUILD_AVG, na.rm = TRUE)),
+    COMMONAREA_AVG = replace(COMMONAREA_AVG, is.na(COMMONAREA_AVG), median(COMMONAREA_AVG, na.rm = TRUE)),
+    ELEVATORS_AVG = replace(ELEVATORS_AVG, is.na(ELEVATORS_AVG), median(ELEVATORS_AVG, na.rm = TRUE)),
+    ENTRANCES_AVG = replace(ENTRANCES_AVG, is.na(ENTRANCES_AVG), median(ENTRANCES_AVG, na.rm = TRUE)),
+    FLOORSMAX_AVG = replace(FLOORSMAX_AVG, is.na(FLOORSMAX_AVG), median(FLOORSMAX_AVG, na.rm = TRUE)),
+    FLOORSMIN_AVG = replace(FLOORSMIN_AVG, is.na(FLOORSMIN_AVG), median(FLOORSMIN_AVG, na.rm = TRUE)),
+    LANDAREA_AVG = replace(LANDAREA_AVG, is.na(LANDAREA_AVG), median(LANDAREA_AVG, na.rm = TRUE)),
+    LIVINGAPARTMENTS_AVG = replace(LIVINGAPARTMENTS_AVG, is.na(LIVINGAPARTMENTS_AVG), median(LIVINGAPARTMENTS_AVG, na.rm = TRUE)),
+    LIVINGAREA_AVG = replace(LIVINGAREA_AVG, is.na(LIVINGAREA_AVG), median(LIVINGAREA_AVG, na.rm = TRUE)),
+    NONLIVINGAPARTMENTS_AVG = replace(NONLIVINGAPARTMENTS_AVG, is.na(NONLIVINGAPARTMENTS_AVG), median(NONLIVINGAPARTMENTS_AVG, na.rm = TRUE)),
+    NONLIVINGAREA_AVG = replace(NONLIVINGAREA_AVG, is.na(NONLIVINGAREA_AVG), median(NONLIVINGAREA_AVG, na.rm = TRUE))
+  )
+
+# Check the results for the new set of columns
+summary(application_test_clean[c("APARTMENTS_AVG", "BASEMENTAREA_AVG", "YEARS_BEGINEXPLUATATION_AVG",
+                                  "YEARS_BUILD_AVG", "COMMONAREA_AVG", "ELEVATORS_AVG", "ENTRANCES_AVG",
+                                  "FLOORSMAX_AVG", "FLOORSMIN_AVG", "LANDAREA_AVG", "LIVINGAPARTMENTS_AVG",
+                                  "LIVINGAREA_AVG", "NONLIVINGAPARTMENTS_AVG", "NONLIVINGAREA_AVG")])
+
+#### medi 
+columns_to_impute <- c("APARTMENTS_MEDI", "BASEMENTAREA_MEDI", "YEARS_BEGINEXPLUATATION_MEDI",
+                       "YEARS_BUILD_MEDI", "COMMONAREA_MEDI", "ELEVATORS_MEDI", "ENTRANCES_MEDI",
+                       "FLOORSMAX_MEDI", "FLOORSMIN_MEDI", "LANDAREA_MEDI", 
+                       "LIVINGAPARTMENTS_MEDI", "LIVINGAREA_MEDI", "NONLIVINGAPARTMENTS_MEDI",
+                       "NONLIVINGAREA_MEDI")
+
+# Impute NA values with the median using across
+application_test_clean <- application_test_clean %>%
+  mutate(across(all_of(columns_to_impute), ~ifelse(is.na(.), median(., na.rm = TRUE), .)))
+
+# Check the results again
+summary(select(application_test_clean, all_of(columns_to_impute)))
+
+### mode 
+
+# Columns to impute
+columns_to_impute <- c("APARTMENTS_MODE", "BASEMENTAREA_MODE", "YEARS_BEGINEXPLUATATION_MODE",
+                       "YEARS_BUILD_MODE", "COMMONAREA_MODE", "ELEVATORS_MODE", "ENTRANCES_MODE",
+                       "FLOORSMAX_MODE", "FLOORSMIN_MODE", "LANDAREA_MODE",
+                       "LIVINGAPARTMENTS_MODE", "LIVINGAREA_MODE", "NONLIVINGAPARTMENTS_MODE",
+                       "NONLIVINGAREA_MODE", "TOTALAREA_MODE")
+
+# impute median 
+application_test_clean <- application_test_clean %>%
+  mutate(across(all_of(columns_to_impute), ~replace(., is.na(.), median(., na.rm = TRUE))))
+
+# Check the results
+summary(application_test_clean[columns_to_impute])
+
+
+
+### own car age 
+
+# Remove the OWN_CAR_AGE column from the dataframe
+application_test_clean <- application_test_clean %>%
+  select(-OWN_CAR_AGE)
+
+
+
+## amt goods price 
+
+#  median of the AMT_GOODS_PRICE 
+median_amt_goods_price <- median(application_train_clean$AMT_GOODS_PRICE, na.rm = TRUE)
+
+# Impute missing values in the AMT_GOODS_PRICE column with the median
+application_test_clean$AMT_GOODS_PRICE <- ifelse(is.na(application_test_clean$AMT_GOODS_PRICE), 
+                                                  median_amt_goods_price, 
+                                                  application_test_clean$AMT_GOODS_PRICE)
+
+# Check to ensure no more NAs in the AMT_GOODS_PRICE column
+sum(is.na(application_test_clean$AMT_GOODS_PRICE))
+
+
+### amnt annuity 
+#  median of the AMT_ ANNUITY 
+median_amt_annuity <- median(application_test_clean$AMT_ANNUITY, na.rm = TRUE)
+
+# Impute missing values 
+application_test_clean$AMT_ANNUITY <- ifelse(is.na(application_test_clean$AMT_ANNUITY), 
+                                                  median_amt_annuity, 
+                                                  application_test_clean$AMT_ANNUITY)
+
+# Check
+sum(is.na(application_test_clean$AMT_ANNUITY))
+
+### CNT_FAM_MEMBERS 
+#  median of the CNT_FAM_MEMBERS 
+median_cnt_fam_members <- median(application_train_clean$CNT_FAM_MEMBERS, na.rm = TRUE)
+
+# Impute missing values
+application_test_clean$CNT_FAM_MEMBERS <- ifelse(is.na(application_test_clean$CNT_FAM), 
+                                                  median_cnt_fam_members, 
+                                                  application_test_clean$CNT_FAM_MEMBERS)
+
+# Check
+sum(is.na(application_test_clean$CNT_FAM_MEMBERS))
+
+### ext sources 
+application_test_clean <- application_test_clean %>%
+  select(-c(EXT_SOURCE_2, EXT_SOURCE_3, EXT_SOURCE_1))
+
+### social circles 
+
+# # Impute NA values
+application_test_clean <- application_test_clean %>%
+  mutate(
+    DEF_30_CNT_SOCIAL_CIRCLE = replace(DEF_30_CNT_SOCIAL_CIRCLE, is.na(DEF_30_CNT_SOCIAL_CIRCLE), median(DEF_30_CNT_SOCIAL_CIRCLE, na.rm = TRUE)),
+    OBS_60_CNT_SOCIAL_CIRCLE = replace(OBS_60_CNT_SOCIAL_CIRCLE, is.na(OBS_60_CNT_SOCIAL_CIRCLE), median(OBS_60_CNT_SOCIAL_CIRCLE, na.rm = TRUE)),
+    DEF_60_CNT_SOCIAL_CIRCLE = replace(DEF_60_CNT_SOCIAL_CIRCLE, is.na(DEF_60_CNT_SOCIAL_CIRCLE), median(DEF_60_CNT_SOCIAL_CIRCLE, na.rm = TRUE)),
+    OBS_30_CNT_SOCIAL_CIRCLE = replace(OBS_30_CNT_SOCIAL_CIRCLE, is.na(OBS_30_CNT_SOCIAL_CIRCLE), median(OBS_30_CNT_SOCIAL_CIRCLE, na.rm = TRUE))
+  )
+
+# Check the results for the specific set of columns
+summary(application_test_clean[c("DEF_30_CNT_SOCIAL_CIRCLE", "OBS_60_CNT_SOCIAL_CIRCLE", "DEF_60_CNT_SOCIAL_CIRCLE", "OBS_30_CNT_SOCIAL_CIRCLE")])
+
+
+# Count the number of NAs in each column of the dataframe
+na_count <- application_test_clean %>%
+  summarize(across(everything(), ~sum(is.na(.))))
+
+# View the results
+print(na_count)
+```
+```{r}
+# Ensure `EXT_SOURCE` variables are removed
+application_train_clean <- application_train_clean[ , !(names(application_train_clean) %in% c("EXT_SOURCE_1", "EXT_SOURCE_2", "EXT_SOURCE_3"))]
+
+```
+
+# Modeling 
+
+
+## over sampling and under sampling train
+
+
+## Split Data 
+```{r}
+set.seed(100)
+inTrain <- createDataPartition(application_train_clean$TARGET, p=0.7, list=FALSE)
+
+length(inTrain)
+class(inTrain)
+```
+## set test 
+
+```{r}
+train_set <- application_train_clean[inTrain,]
+test_set <- application_train_clean[-inTrain,]
+
+train_set %>% nrow()
+test_set %>% nrow()
+```
+
+
+```{r}
+# over sample minority class and undersample majority class 
+set.seed(123) 
+train_set <- ovun.sample(TARGET ~ ., data = train_set, method = "both", N = 200000)$data
+head(train_set)
+```
+
+```{r}
+set.seed(123) 
+test_set <- ovun.sample(TARGET ~ ., data = test_set, method = "both", N = 200000)$data
+head(test_set)
+```
+
+
+```{r}
+# Fit the rpart model
+rpart_model <- rpart(TARGET ~ ., data = train_set, method = "class")
+
+# View the model summary
+summary(rpart_model)
+
+```
+
+
+
+## Plot 
+```{r}
+rpart.plot(rpart_model, digits = 6)
+```
+
+
+```{r}
+# Get predictions from rpart model (probabilities of the positive class)
+train_set$rpart_prob = predict(rpart_model, train_set, type = "prob")[,2]
+test_set$rpart_prob = predict(rpart_model, test_set, type = "prob")[,2]
+```
+
+## Evaluate rpart model
+# ```{r Apply and evaluate an rpart model}
+# 
+# predictions_rpart_train <- predict(rpart_model, application_train_clean)
+# ```
+# ## Use rminer to generate model's evaluation metrics
+# ```{r Generate performance metrics}
+# # Generating multiple prediction evaluation metrics using rminer package
+# 
+# metrics_list <- c("MAE","RMSE","MAPE","RMSPE","RAE", "RRSE", "COR", "R2")
+# 
+# 
+# # performance of predictions on training data
+# mmetric(balanced_data_train$TARGET, predictions_rpart_train, metrics_list)
+# 
+# ```
+## standard LM model 
+
+```{r}
+logistic_model <- glm(TARGET ~ OCCUPATION_TYPE + DAYS_EMPLOYED + ORGANIZATION_TYPE + DAYS_BIRTH +
+                      NAME_EDUCATION_TYPE + rpart_prob,
+                      data = train_set, family = binomial())
+
+summary(logistic_model)
+```
+
+## AUC 
+
+```{r}
+test_probabilities <- predict(logistic_model, newdata = test_set, type = "response")
+
+```
+
+```{r}
+
+roc_obj <- roc(test_set$TARGET, test_probabilities)
+auc_value <- auc(roc_obj)
+print(auc_value)
+```
+
+
+## Polynomial 
+
+```{r}
+# Squaring the features to create polynomial terms
+train_set$DAYS_BIRTH_squared = train_set$DAYS_BIRTH^2
+train_set$DAYS_EMPLOYED_squared = train_set$DAYS_EMPLOYED^2
+
+# Do the same for the test set or validation set
+test_set$DAYS_BIRTH_squared = test_set$DAYS_BIRTH^2
+test_set$DAYS_EMPLOYED_squared = test_set$DAYS_EMPLOYED^2
+
+```
+
+```{r}
+# Fit the GLM model including the polynomial features
+polynomial_model <- glm(TARGET ~ OCCUPATION_TYPE + DAYS_EMPLOYED + DAYS_BIRTH +
+                 DAYS_EMPLOYED_squared + DAYS_BIRTH_squared + NAME_EDUCATION_TYPE + rpart_prob,
+                 data = train_set, family = binomial())
+summary(polynomial_model)
+```
+```{r}
+probabilities_polyn <- predict(polynomial_model, newdata = test_set, type = "response")
+roc_obj <- roc(test_set$TARGET, probabilities_polyn)
+auc_value <- auc(roc_obj)
+print(auc_value)
+```
+
+## Binning 
+
+```{r}
+# Bin 'DAYS_BIRTH' into 5 equal-sized bins for the training set
+train_set$age_group = cut(train_set$DAYS_BIRTH, 
+                          breaks = quantile(train_set$DAYS_BIRTH, probs = seq(0, 1, by = 0.2)), 
+                          include.lowest = TRUE, 
+                          labels = FALSE)  # 'labels = FALSE' will return integer labels
+
+# Do the same for the test set
+
+test_set$age_group = cut(test_set$DAYS_BIRTH, 
+                                  breaks = quantile(train_set$DAYS_BIRTH, probs = seq(0, 1, by = 0.2)), 
+                                  include.lowest = TRUE, 
+                                  labels = FALSE)
+
+```
+```{r}
+train_set$age_group <- as.factor(train_set$age_group)
+test_set$age_group <- as.factor(test_set$age_group)
+
+```
+```{r}
+# Fit a GLM model with age_group and potentially other predictors
+binning_model <- glm(TARGET ~ age_group + OCCUPATION_TYPE + DAYS_EMPLOYED + DAYS_BIRTH +
+                 DAYS_EMPLOYED_squared + DAYS_BIRTH_squared + NAME_EDUCATION_TYPE + rpart_prob,
+                 data = train_set, family = binomial())
+
+# View the model s
+summary(binning_model)
+```
+```{r}
+probabilities_binning <- predict(binning_model, newdata = test_set, type = "response")
+roc_obj <- roc(test_set$TARGET, probabilities_binning)
+auc_value <- auc(roc_obj)
+print(auc_value)
+```
+
