@@ -1,57 +1,55 @@
-# home_credit
-# Overview
-This project, titled "Capstone Model," is designed to predict credit default risk using various machine learning models. The analysis is based on the Home Credit dataset, which includes a comprehensive range of attributes about loan applicants. This project involves extensive data cleaning, feature engineering, and model evaluation to understand and predict credit default risks effectively.
+# Home Credit Default Risk – Team Project
 
-# Objective
-The primary objective of this project is to utilize financial and personal data from loan applicants to predict their likelihood of defaulting on a loan. The project aims to enhance loan decision processes by identifying risk factors and predicting outcomes based on comprehensive data analysis.
+Predict which applicants are likely to default so Home Credit can expand access to credit while managing risk. Primary KPI: AUC on a held-out set.
 
-# Data
-The dataset used in this project includes the following files:
+> Team: Ahsan Ahmed · Raunak Sharma · Scott Silverstein · Rylan Tribush
 
-application_train.csv: Training data with details on each loan application.
-application_test.csv: Test data for model validation.
-Project Structure
-#Data Cleaning: Initial handling of missing values, encoding categorical variables, and normalization of numerical data.
-#Feature Engineering: Creation of new variables to improve model performance.
-#Model Development: Training of several models including decision trees, logistic regression, and polynomial models.
-#Evaluation: Assessment of model performance using ROC-AUC and other relevant metrics.
-#Installation and Usage
-## Dependencies
-This project requires R and the following R packages:
+---
 
-caret
-tidyverse
-rpart
-ggplot2
-skimr
-mice
-ROSE
-rpart.plot
-rminer
-ModelMetrics
-RWeka
-pROC
-cluster
-To install the necessary R packages, run the following command:
+## 📁 Repository Contents
 
-R
-Copy code
-install.packages(c("caret", "tidyverse", "rpart", "ggplot2", "skimr", "mice", "ROSE", "rpart.plot", "rminer", "ModelMetrics", "RWeka", "pROC", "cluster"))
-Scripts and Execution
-Data Loading and Cleaning:
-R
-Copy code
-application_train <- read.csv('application_train.csv')
-application_test <- read.csv('application_test.csv')
-# Follow the steps in the R script to clean and preprocess the data.
-Model Training:
-R
-Copy code
-# Load and run the model training scripts provided in the project files.
-# Each script corresponds to a different modeling approach as detailed in the project report.
-Model Evaluation:
-R
-Copy code
-# Evaluate the models using the scripts that generate performance metrics.
-Contributing
-Contributions to this project are welcome. Please fork the repository and submit pull requests to the develop branch.
+- 📄 **Business Problem Statement**  
+  Goals, scope, metrics, and benefits of the solution.  
+  → [`Business Problem Statement Template.pdf`](./Business%20Problem%20Statement%20Template.pdf)
+
+- 🖥️ **Annotated Presentation (PDF export)**  
+  Slide deck summarizing data findings, class imbalance, feature importance, and model results (XGBoost).  
+  → [`annotated-Presentation Draft 2.pptx.pdf`](./annotated-Presentation%20Draft%202.pptx.pdf)
+
+- 📊 **EDA Report (HTML)**  
+  Exploratory data analysis you can open in a browser.  
+  → [`eda.html`](./eda.html)
+
+- 🧪 **Modeling Notebook (R Markdown)**  
+  Reproducible modeling workflow. Knit to HTML or save outputs as needed.  
+  → [`modeling assignment.Rmd`](./modeling%20assignment.Rmd)
+
+---
+
+## 🔎 Project Overview
+
+Home Credit aims to better identify creditworthy borrowers—including those with little or no traditional credit history—by using alternative data and supervised learning to predict default probability. The business value is improved risk management and broader financial inclusion, measured primarily with AUC.  
+Modeling centers on gradient boosting (XGBoost) due to its handling of class imbalance, feature importance, and strong performance.
+
+---
+
+## 🧭 How to Use This Repo
+
+1. **Skim the problem framing:** start with the _Business Problem Statement_ to understand objectives, scope, and KPIs.  
+2. **Review EDA:** open `eda.html` in your browser to see data distributions and relationships.  
+3. **Reproduce the model:** open `modeling assignment.Rmd` in RStudio and Knit/Run.  
+4. **Share results:** use the _Annotated Presentation_ for a stakeholder-friendly summary.
+
+---
+
+## 🛠️ Tech & Metrics (at a glance)
+
+- **Primary metric:** AUC on a held-out test set  
+- **Modeling approach:** Gradient Boosting (XGBoost)  
+- **Artifacts:** Business problem statement (PDF), EDA (HTML), R Markdown modeling file, annotated slide deck (PDF)
+
+---
+
+## 📬 Contact
+
+Questions or suggestions? Open an issue or reach out to a team member (see author list above).
